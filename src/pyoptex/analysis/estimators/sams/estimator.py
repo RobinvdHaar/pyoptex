@@ -145,7 +145,7 @@ class SamsRegressor(MultiRegressionMixin):
         random_effects=(),
         dependencies=None,
         mode=None,
-        forced_model=None,
+        forced_model=np.array([0]),
         model_size=None,
         oversized_model_size=None,
         nb_models=10000,
@@ -298,11 +298,12 @@ class SamsRegressor(MultiRegressionMixin):
             self._s_max = len(X) // 3
             self._oversized_model_size = self._s_max + 2
 
+        forced_len = len(self.forced_model) if self.forced_model is not None else 0
         self._nterms_bnb = (
-            range(len(self.forced_model) + 1, self._s_max + 1)
+            range(forced_len + 1, self._s_max + 1)
             if self.nterms_bnb is None
             else (
-                range(len(self.forced_model) + 1, self.nterms_bnb + 1)
+                range(forced_len + 1, self.nterms_bnb + 1)
                 if isinstance(self.nterms_bnb, int)
                 else self.nterms_bnb
             )
