@@ -352,17 +352,6 @@ class SamsRegressor(MultiRegressionMixin):
             "(s_max): the search cannot distil a model larger than the "
             "oversized models it explores."
         )
-        assert self._oversized_model_size <= self.n_encoded_features_, (
-            f"oversized_model_size ({self._oversized_model_size}) cannot exceed "
-            f"the number of candidate features ({self.n_encoded_features_})."
-        )
-        capacity_bound = min(self.n_encoded_features_, len(X))
-        assert self._oversized_model_size <= capacity_bound, (
-            f"oversized_model_size ({self._oversized_model_size}) cannot exceed "
-            f"min(candidate features {self.n_encoded_features_}, runs {len(X)}) "
-            f"= {capacity_bound}. This is a coarse bound; estimable capacity may "
-            f"be lower still in split-plot designs."
-        )
         forced_len = len(self.forced_model) if self.forced_model is not None else 0
         for size in self._nterms_bnb:
             assert forced_len < size <= self._oversized_model_size, (
@@ -584,6 +573,17 @@ class SamsRegressor(MultiRegressionMixin):
         # Some final validation
         assert np.all(self.forced_model < self.n_encoded_features_), (
             "The forced model must have integers smaller than the number of parameters in X"
+        )
+        assert self._oversized_model_size <= self.n_encoded_features_, (
+            f"oversized_model_size ({self._oversized_model_size}) cannot exceed "
+            f"the number of candidate features ({self.n_encoded_features_})."
+        )
+        capacity_bound = min(self.n_encoded_features_, len(X))
+        assert self._oversized_model_size <= capacity_bound, (
+            f"oversized_model_size ({self._oversized_model_size}) cannot exceed "
+            f"min(candidate features {self.n_encoded_features_}, runs {len(X)}) "
+            f"= {capacity_bound}. This is a coarse bound; estimable capacity may "
+            f"be lower still in split-plot designs."
         )
         if self.mode is not None:
             assert self.dependencies.shape[0] == X.shape[1], "Must specify a dependency for each term"
