@@ -299,14 +299,12 @@ class SamsRegressor(MultiRegressionMixin):
             self._oversized_model_size = self._s_max + 2
 
         forced_len = len(self.forced_model) if self.forced_model is not None else 0
-        self._nterms_bnb = (
+        self._nterms_bnb = list(
             range(forced_len + 1, self._s_max + 1)
             if self.nterms_bnb is None
-            else (
-                range(forced_len + 1, self.nterms_bnb + 1)
-                if isinstance(self.nterms_bnb, int)
-                else self.nterms_bnb
-            )
+            else (range(forced_len + 1, self.nterms_bnb + 1)
+                  if isinstance(self.nterms_bnb, int)
+                  else self.nterms_bnb)
         )
         self._est_ratios = np.ones(len(self._re)) if len(self._re) > 0 and self.est_ratios is None else self.est_ratios
 
@@ -333,6 +331,15 @@ class SamsRegressor(MultiRegressionMixin):
         # TODO: validate forced_model hereditary
 
         # Validate SAMS inputs
+        if self.model_size is not None:
+            assert isinstance(self.model_size, (int, np.integer)), (
+                "model_size must be an integer"
+            )
+        if self.oversized_model_size is not None:
+            assert isinstance(self.oversized_model_size, (int, np.integer)), (
+                "oversized_model_size must be an integer"
+            )
+
         if self._s_max is not None:
             if self.forced_model is None:
                 assert self._s_max > 0, "The model size (s_max) must be a positive number"
@@ -345,6 +352,24 @@ class SamsRegressor(MultiRegressionMixin):
             "(s_max): the search cannot distil a model larger than the "
             "oversized models it explores."
         )
+        assert self._oversized_model_size <= self.n_encoded_features_, (
+            f"oversized_model_size ({self._oversized_model_size}) cannot exceed "
+            f"the number of candidate features ({self.n_encoded_features_})."
+        )
+        capacity_bound = min(self.n_encoded_features_, len(X))
+        assert self._oversized_model_size <= capacity_bound, (
+            f"oversized_model_size ({self._oversized_model_size}) cannot exceed "
+            f"min(candidate features {self.n_encoded_features_}, runs {len(X)}) "
+            f"= {capacity_bound}. This is a coarse bound; estimable capacity may "
+            f"be lower still in split-plot designs."
+        )
+        forced_len = len(self.forced_model) if self.forced_model is not None else 0
+        for size in self._nterms_bnb:
+            assert forced_len < size <= self._oversized_model_size, (
+                f"BnB submodel size {size} must be greater than the forced-model "
+                f"size ({forced_len}) and at most oversized_model_size "
+                f"({self._oversized_model_size})."
+            )
         assert self.nb_models == "all" or self.nb_models > 0, (
             'Must have at least one model to simulate, nb_models must be larger than zero or "all"'
         )
