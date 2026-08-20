@@ -27,11 +27,11 @@ def _fn_as_dataframe(f, Y, params):
     return f(Y, params)
 
 def _fn_denormalized(f, Y, params):
-    for f in params.factors:
-        Y[str(f.name)] = f.denormalize(Y[str(f.name)])
+    for factor in params.factors:
+        Y[str(factor.name)] = factor.denormalize(Y[str(factor.name)])
     return f(Y, params)
 
-def __cost_fn(f, denormalize=True, decoded=True, dataframe=True, contains_params=False):
+def __cost_fn(f, denormalize=True, decoded=True, dataframe=None, contains_params=False):
     """
     Cost function decorator code.
 
@@ -43,8 +43,10 @@ def __cost_fn(f, denormalize=True, decoded=True, dataframe=True, contains_params
         Whether to denormalize (and decode) the data before passing it to `f`.
     decoded : bool
         Whether to only decode, but not denormalize the data before passing it to `f`.
-    dataframe : bool
-        Whether to convert the design to a pandas DataFrame before passing it to `f`.
+    dataframe : bool or None, default None
+        Whether to convert the design to a pandas DataFrame before passing it to `f`. 
+        If None, this defaults to True when `denormalize=True` or `decoded=True`
+        and False otherwise.
     contains_params : bool
         Whether the cost function requires the CODEX
         :py:class:`Parameters <pyoptex.doe.cost_optimal.utils.Parameters>`.
@@ -62,6 +64,9 @@ def __cost_fn(f, denormalize=True, decoded=True, dataframe=True, contains_params
             UserWarning,
         )
         dataframe = True
+    
+    if dataframe is None:
+        dataframe = denormalize or decoded
 
     # Check if parameters are required (prevents direct use of numba.njit compilation)
     if not contains_params:
@@ -109,8 +114,10 @@ def cost_fn(*args, **kwargs):
         Whether to denormalize (and decode) the data before passing it to `f`.
     decoded : bool
         Whether to only decode, but not denormalize the data before passing it to `f`.
-    dataframe : bool
-        Whether to convert the design to a pandas DataFrame before passing it to `f`.
+    dataframe : bool or None, default None
+        Whether to convert the design to a pandas DataFrame before passing it to `f`. 
+        If None, this defaults to True when `denormalize=True` or `decoded=True` 
+        and False otherwise.
     contains_params : bool
         Whether the cost function requires the
         :py:class:`Parameters <pyoptex.doe.cost_optimal.utils.Parameters>`.
