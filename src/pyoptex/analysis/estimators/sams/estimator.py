@@ -581,7 +581,7 @@ class SamsRegressor(MultiRegressionMixin):
         if self.ncluster is None:
             # Perform branch and bound
             submodels, freq = self._topn_selection(
-                results["model"], self._nterms_bnb, self.n_term_groups_, self.topn_bnb, self.bnb_timeout
+                results["model"], self._nterms_bnb, self.sams_model_.n_term_groups_, self.topn_bnb, self.bnb_timeout
             )
 
             # Compute entropies
@@ -592,7 +592,7 @@ class SamsRegressor(MultiRegressionMixin):
 
         else:
             # Expand models to integer cluster (for kmeans)
-            results_cluster = np.zeros((len(results), self.n_term_groups_))
+            results_cluster = np.zeros((len(results), self.sams_model_.n_term_groups_))
             np.put_along_axis(results_cluster, results["model"], 1, axis=1)
 
             # Auto detect the number of clusters
@@ -630,7 +630,7 @@ class SamsRegressor(MultiRegressionMixin):
                 # Perform branch and bound
                 results_ = results["model"][cluster_i][skipn:]
                 submodels, freq = self._topn_selection(
-                    results_, self._nterms_bnb, self.n_term_groups_, self.topn_bnb, self.bnb_timeout
+                    results_, self._nterms_bnb, self.sams_model_.n_term_groups_, self.topn_bnb, self.bnb_timeout
                 )
                 m_.extend(submodels)
                 f_.append(freq)
@@ -651,7 +651,7 @@ class SamsRegressor(MultiRegressionMixin):
         self.frequencies_ = freq[best_idx]
 
         # Take only the unique submodels
-        submodels = self._unique_submodels(self.models_, self.n_term_groups_)
+        submodels = self._unique_submodels(self.models_, self.sams_model_.n_term_groups_)
         self.models_ = [model for accept, model in zip(submodels, self.models_, strict=True) if accept]
         self.frequencies_ = self.frequencies_[submodels]
         self.entropies_ = self.entropies_[submodels]
