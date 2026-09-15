@@ -5,6 +5,7 @@ Module for utility functions related to computational formulas.
 import multiprocessing
 
 import numpy as np
+from scipy.ndimage import uniform_filter1d
 
 from pyoptex.utils._comp_cy import choice_bool, int2bool_cython_impl, outer_integral_cython_impl  # noqa: F401
 
@@ -103,3 +104,42 @@ def timeout(func, *args, timeout=1, default=None):
         return out
     except multiprocessing.TimeoutError:
         return default
+
+
+def find_knee(metric):
+    """
+    Find the knee point in a monotonically increasing array using
+    the maximum perpendicular distance from the diagonal.
+
+    Parameters
+    ----------
+    metric : np.array(1d)
+        A sorted (ascending) array of values.
+
+    Returns
+    -------
+    idx : int
+        The index of the knee point.
+    """
+    y = np.asarray(metric, dtype=float)
+    n = len(y)
+    if n < 10:
+        return 0
+
+    smooth_window = max(3, n // 100)
+    y = uniform_filter1d(y, size=smooth_window)
+
+    x = np.linspace(0, 1, n)
+    y_range = y[-1] - y[0]
+
+    if y_range < 1e-12:
+        return 0
+
+    y_norm = (y - y[0]) / y_range
+    dx = 1.0
+    dy = y_norm[-1] - y_norm[0]
+    dist = np.abs(dy * x - dx * y_norm + y_norm[0]) / np.sqrt(dx**2 + dy**2)
+
+    lo = max(1, int(n * 0.01))
+    hi = int(n * 0.95)
+    return lo + np.argmax(dist[lo:hi])
