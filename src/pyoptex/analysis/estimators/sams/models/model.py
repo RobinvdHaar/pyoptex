@@ -83,12 +83,14 @@ class Model:
         if dep is None:
             # No structure: every column is its own group
             self.term_groups = [np.array([i]) for i in range(X.shape[1])]
+            self.n_term_groups = X.shape[1]
             self.dep = None
             self.forced = forced
         else:
             # Strongly connected components = terms that must travel together
             n_groups, labels = connected_components(dep, directed=True, connection='strong')
             self.term_groups = [np.flatnonzero(labels == g) for g in range(n_groups)]
+            self.n_term_groups_ = n_groups
 
             # Collapse dep to group level (within-group edges dropped)
             dep_g = np.zeros((n_groups, n_groups), dtype=np.bool_)
