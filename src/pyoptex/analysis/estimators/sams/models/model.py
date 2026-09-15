@@ -18,33 +18,23 @@ class Model:
     Base class of a model specifying sampling and mutation functionalities
     in the SAMS algorithm.
 
-    Models are sampled at the level of *term groups*: sets of encoded
-    columns that must enter and leave the model together. Term groups are
-    derived from cycles in the dependency matrix (see ``dep``). For a
-    dependency matrix without cycles, every column is its own group and the
-    behaviour is identical to sampling individual columns.
-
     This class can be extended by overwriting the
     :py:func:`fit <pyoptex.analysis.estimators.sams.model.fit>` function.
 
     Attributes
     ----------
     X : np.array(2d)
-        The encoded, normalized model matrix of the data.
+        The encoded, normalized model matrix of the data
     y : np.array(1d)
         The output variable.
-    term_groups : list(np.array(1d))
-        The mapping from term group index to the column indices of X
-        belonging to that group. ``term_groups[g]`` are the columns
-        that are added or removed together when group ``g`` is sampled.
     forced : np.array(1d)
-        The term group indices that must be included in every model.
+        Any terms that must be included in the model.
     mode : None or 'weak' or 'strong'
         The heredity model during sampling.
     dep : np.array(2d)
-        The dependency matrix at the term group level, of size (G, G) with
-        G the number of term groups. Group i depends on group j if
-        dep(i, j) = true. Within-group dependencies are dropped.
+        The dependency matrix of size (N, N) with N the number
+        of terms in the encoded model (output from Y2X). Term i depends on term j
+        if dep(i, j) = true.
     """
 
     def __init__(self, X, y, forced=None, mode="weak", dep=None):
@@ -92,13 +82,13 @@ class Model:
 
         if dep is None:
             # No structure: every column is its own group
-            self.groups = [np.array([i]) for i in range(X.shape[1])]
+            self.term_groups = [np.array([i]) for i in range(X.shape[1])]
             self.dep = None
             self.forced = forced
         else:
             # Strongly connected components = terms that must travel together
             n_groups, labels = connected_components(dep, directed=True, connection='strong')
-            self.groups = [np.flatnonzero(labels == g) for g in range(n_groups)]
+            self.term_groups = [np.flatnonzero(labels == g) for g in range(n_groups)]
 
             # Collapse dep to group level (within-group edges dropped)
             dep_g = np.zeros((n_groups, n_groups), dtype=np.bool_)
@@ -117,7 +107,7 @@ class Model:
 
     def _expand(self, model):
         """Expand group indices to column indices for fitting."""
-        return np.concatenate([self.groups[g] for g in model])
+        return np.concatenate([self.term_groups[g] for g in model])
 
     def _sort(self, model):
         """
@@ -290,7 +280,7 @@ class Model:
             The list of all feasible models.
         """
         models = []
-        for model in combinations(range(len(self.groups)), model_size):
+        for model in combinations(range(len(self.term_groups)), model_size):
             model = np.array(model)
             if np.all(permitted_dep_add(model, self.mode, self.dep, model)) and np.all(
                 np.isin(self.forced, model, assume_unique=True)

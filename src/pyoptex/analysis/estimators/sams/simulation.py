@@ -44,7 +44,7 @@ def simulate_sams(model, model_size, accept_fn=None, nb_models=10, minprob=0.01,
     accept_fn.reset()
 
     # Worst-case number of coefficients for model_size groups
-    group_sizes = np.array([len(g) for g in model.groups])
+    group_sizes = np.array([len(g) for g in model.term_groups])
     max_coeff_size = int(np.sum(np.sort(group_sizes)[::-1][:model_size]))
     assert max_coeff_size < model.X.shape[0], (
     f"model_size={model_size} term groups can expand to {max_coeff_size} "
@@ -138,7 +138,7 @@ def simulate_all(model, model_size, tqdm=True):
     nb_models = len(models)
 
     # Worst-case number of coefficients for model_size groups
-    group_sizes = np.array([len(g) for g in model.groups])
+    group_sizes = np.array([len(g) for g in model.term_groups])
     max_coeff_size = int(np.sum(np.sort(group_sizes)[::-1][:model_size]))
     assert max_coeff_size < model.X.shape[0], (
     f"model_size={model_size} term groups can expand to {max_coeff_size} "
