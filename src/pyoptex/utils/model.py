@@ -683,7 +683,7 @@ def order_dependencies(model, factors):
     cols_per_factor = np.where(effect_types > 1, effect_types - 1, 1)
     start = 0
     for row in range(model.shape[0]):
-        n_encoded = int(np.prod(cols_per_factor[model[row] > 0]))
+        n_encoded = int(np.prod(cols_per_factor[model[row] == 1]))
         if n_encoded > 1:
             block = np.arange(start, start + n_encoded)
             dep[np.ix_(block, block)] = True
