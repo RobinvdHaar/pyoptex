@@ -106,7 +106,7 @@ def timeout(func, *args, timeout=1, default=None):
         return default
 
 
-def find_knee(metric):
+def find_knee(metric, min_distance=0.05, lo=0.01, hi=0.90):
     """
     Find the knee point in a monotonically increasing array using
     the maximum perpendicular distance from the diagonal.
@@ -115,6 +115,18 @@ def find_knee(metric):
     ----------
     metric : np.array(1d)
         A sorted (ascending) array of values.
+    min_distance : float
+        Minimum normalized distance from the diagonal to consider
+        the knee meaningful. If the curve is approximately linear
+        (max distance below this threshold), returns 0.
+    lo : float
+        Lower bound of the search range as a fraction of the array
+        length. The knee is never placed before this point, ensuring
+        at least (1 - lo) of the data is always retained.
+    hi : float
+        Upper bound of the search range as a fraction of the array
+        length. The knee is never placed past this point, ensuring
+        at least (1 - hi) of the data is always retained.
 
     Returns
     -------
@@ -138,8 +150,15 @@ def find_knee(metric):
     y_norm = (y - y[0]) / y_range
     dx = 1.0
     dy = y_norm[-1] - y_norm[0]
-    dist = np.abs(dy * x - dx * y_norm + y_norm[0]) / np.sqrt(dx**2 + dy**2)
+    line_len = np.sqrt(dx**2 + dy**2)
+    dist = np.abs(dy * x - dx * y_norm + y_norm[0]) / line_len
 
-    lo = max(1, int(n * 0.01))
-    hi = int(n * 0.95)
-    return lo + np.argmax(dist[lo:hi])
+    lo = max(1, int(n * lo))
+    hi = int(n * hi)
+    best_idx = lo + np.argmax(dist[lo:hi])
+
+    # If the curve is approximately linear, there is no real knee
+    if dist[best_idx] < min_distance:
+        return 0
+    
+    return best_idx
