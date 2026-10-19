@@ -1,7 +1,80 @@
+from itertools import combinations
+
 import numpy as np
+import pandas as pd
 import pytest
 
-from pyoptex.doe.classical import Factor, central_composite, min_aberration_generators
+from pyoptex.doe.classical import (
+    Factor,
+    add_axial_block,
+    central_composite,
+    fractional_factorial,
+    full_factorial,
+    min_aberration_generators,
+)
+
+
+def _sorted_rows(Y, columns):
+    """The runs as a sorted list of rounded tuples, to compare designs up to run order."""
+    return sorted(tuple(np.round(row, 10)) for row in Y[columns].to_numpy(dtype=np.float64))
+
+
+class TestAddAxialBlock:
+    def test_completes_the_blocked_ccd(self):
+        """A 2^3 with 4 center runs plus the axial block is the CCD with the same blocking (up to run order)."""
+        factors = [Factor(n) for n in "ABC"]
+        Y = add_axial_block(full_factorial(factors, n_center=4), factors, n_center=2)
+        ccd = central_composite(factors, alpha="orthogonal", n_blocks=2, n_center=(4, 2))
+        columns = ["A", "B", "C", "Block"]
+        assert _sorted_rows(Y, columns) == _sorted_rows(ccd, columns)
+
+    def test_orthogonal_blocking(self):
+        """Every second-order model term has the same mean in both blocks."""
+        factors = [Factor(n) for n in "ABCD"]
+        Y = add_axial_block(full_factorial(factors, n_center=3), factors, n_center=2)
+        X = Y[list("ABCD")].to_numpy(dtype=np.float64)
+        terms = [*X.T, *(X[:, i] * X[:, j] for i, j in combinations(range(4), 2)), *(X**2).T]
+        blocks = Y["Block"].to_numpy()
+        for t in terms:
+            np.testing.assert_allclose(t[blocks == 1].mean(), t[blocks == 2].mean(), atol=1e-10)
+
+    def test_rotatable_alpha_half_fraction(self):
+        """A 2^(5-1) cube has 16 runs, so the rotatable alpha is 16^(1/4) = 2."""
+        factors = [Factor(n) for n in "ABCDE"]
+        cube = fractional_factorial(factors, {"E": ["A", "B", "C", "D"]}, n_center=2)
+        Y = add_axial_block(cube, factors, alpha="rotatable")
+        np.testing.assert_allclose(Y["A"].max(), 2.0)
+        assert len(Y) == 16 + 2 + 10 + 2  # default: as many center runs as the existing block
+
+    def test_real_units(self):
+        """Alpha is measured in half the distance between the two levels, around their middle."""
+        factors = [Factor("A", min=0, max=10, levels=[2, 4]), Factor("B", min=100, max=200)]
+        Y = add_axial_block(full_factorial(factors), factors, alpha=2.0, n_center=1)
+        axial = Y[Y["Block"] == 2]
+        assert sorted(axial["A"].round(10).unique()) == [1.0, 3.0, 5.0]
+        assert sorted(axial["B"].round(10).unique()) == [50.0, 150.0, 250.0]
+
+    def test_existing_blocks(self):
+        factors = [Factor(n) for n in "ABC"]
+        Y = add_axial_block(full_factorial(factors, n_blocks=2, n_center=1), factors, n_center=2)
+        assert Y["Block"].tolist() == [1] * 5 + [2] * 5 + [3] * 8
+
+    def test_resolution_iv_cube_raises(self):
+        factors = [Factor(n) for n in "ABCD"]
+        cube = fractional_factorial(factors, {"D": ["A", "B", "C"]})
+        with pytest.raises(AssertionError, match="needs resolution V"):
+            add_axial_block(cube, factors)
+
+    def test_categorical_factor_raises(self):
+        factors = [Factor("A"), Factor("B"), Factor("C", type="categorical", levels=["X", "Y"])]
+        with pytest.raises(AssertionError, match="must be continuous"):
+            add_axial_block(full_factorial(factors), factors)
+
+    def test_run_neither_cube_nor_center_raises(self):
+        factors = [Factor("A"), Factor("B")]
+        Y = pd.concat([full_factorial(factors), pd.DataFrame({"A": [0.5], "B": [0.0]})], ignore_index=True)
+        with pytest.raises(AssertionError, match="Run 4 is neither a cube run"):
+            add_axial_block(Y, factors)
 
 
 class TestCentralComposite:

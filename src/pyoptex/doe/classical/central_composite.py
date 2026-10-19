@@ -2,11 +2,14 @@
 Module for Central Composite Design (CCD) generation.
 """
 
+from itertools import combinations
+
 import numpy as np
+import pandas as pd
 
 from ...utils.factor import Factor
 from .fractional_factorial import fractional_factorial
-from .utils import BLOCK_COLUMN, _to_dataframe, _validate_factors
+from .utils import BLOCK_COLUMN, _levels, _to_dataframe, _validate_factors
 
 # Number of center points for uniform precision of a rotatable CCD, keyed by
 # (number of factors, number of cube runs). Box, G. E. P. and Hunter, J. S. (1957),
@@ -49,6 +52,31 @@ _CCD_BLOCKED = {
     (7, 128): (16, 1, 11),
     (7, 64): (8, 1, 4),
 }
+
+
+def _axial_distance(alpha, n_cube, k, n_cube_center, n_axial_center, blocked):
+    """
+    Axial distance in coded units (the cube at +/-1) for a CCD with *n_cube* cube runs,
+    *n_cube_center* center runs in the cube block(s) and *n_axial_center* in the axial block.
+    'inscribed' returns the rotatable distance; the caller rescales the design.
+    """
+    if isinstance(alpha, str):
+        if alpha in ("rotatable", "inscribed"):
+            alpha_val = n_cube**0.25
+        elif alpha == "face-centered":
+            alpha_val = 1.0
+        elif alpha == "orthogonal":
+            assert blocked, "alpha='orthogonal' requires a blocked design (n_blocks > 1)"
+            alpha_val = np.sqrt(n_cube * (2 * k + n_axial_center) / (2 * (n_cube + n_cube_center)))
+        else:
+            raise ValueError(
+                f"Unknown alpha type '{alpha}'. Use 'rotatable', 'face-centered', 'inscribed', 'orthogonal', "
+                f"or a float."
+            )
+    else:
+        alpha_val = float(alpha)
+    assert alpha_val > 0, f"alpha must be strictly positive (got {alpha_val})"
+    return alpha_val
 
 
 def _cube_generators(factors, cube):
@@ -178,26 +206,8 @@ def central_composite(factors, alpha=None, n_center=None, cube="full", n_blocks=
 
     if alpha is None:
         alpha = "orthogonal" if n_blocks > 1 else "rotatable"
-    if isinstance(alpha, str):
-        inscribed = alpha == "inscribed"
-        if alpha in ("rotatable", "inscribed"):
-            alpha_val = nf**0.25
-        elif alpha == "face-centered":
-            alpha_val = 1.0
-        elif alpha == "orthogonal":
-            assert n_blocks > 1, "alpha='orthogonal' requires a blocked design (n_blocks > 1)"
-            n_c = n_cube_center * n_cube_blocks
-            alpha_val = np.sqrt(nf * (2 * k + n_axial_center) / (2 * (nf + n_c)))
-        else:
-            raise ValueError(
-                f"Unknown alpha type '{alpha}'. Use 'rotatable', 'face-centered', 'inscribed', 'orthogonal', "
-                f"or a float."
-            )
-    else:
-        inscribed = False
-        alpha_val = float(alpha)
-
-    assert alpha_val > 0, f"alpha must be strictly positive (got {alpha_val})"
+    inscribed = alpha == "inscribed"
+    alpha_val = _axial_distance(alpha, nf, k, n_cube_center * n_cube_blocks, n_axial_center, n_blocks > 1)
 
     axial = np.zeros((2 * k, k), dtype=np.float64)
     for i in range(k):
@@ -226,3 +236,110 @@ def central_composite(factors, alpha=None, n_center=None, cube="full", n_blocks=
         if n_cube_blocks > 1:
             Y.attrs["confounded_with_blocks"] = cube_df.attrs["confounded_with_blocks"]
     return Y
+
+
+def _second_order_matrix(C):
+    """Full second-order model matrix (intercept, main effects, interactions, quadratics) of a coded design."""
+    k = C.shape[1]
+    cols = [np.ones(len(C)), *C.T]
+    cols += [C[:, i] * C[:, j] for i, j in combinations(range(k), 2)]
+    cols += [C[:, i] ** 2 for i in range(k)]
+    return np.column_stack(cols)
+
+
+def add_axial_block(Y, factors, alpha="orthogonal", n_center=None):
+    """
+    Add an axial block to a two-level factorial, turning it into a central
+    composite design.
+
+    This is the sequential step of response surface methodology: when a
+    two-level factorial (with center points) shows curvature, the 2k axial
+    runs (one factor at +/-alpha, the others at the center) and further
+    center runs are added as a new block, which completes a CCD that
+    supports the full second-order model.
+
+    The runs of *Y* must be cube runs (every factor at one of its two
+    levels) or center runs (every factor in the middle of its levels);
+    alpha is measured in units of half the distance between the two
+    levels.  The axial block gets the next block number: if *Y* has no
+    ``'Block'`` column, one is added with 1 for the existing runs and 2
+    for the axial block.
+
+    Parameters
+    ----------
+    Y : pd.DataFrame
+        The existing two-level design (full or fractional factorial),
+        possibly with center runs and a ``'Block'`` column.
+    factors : list(Factor)
+        The factors, all continuous with two levels.
+    alpha : str or float
+        Axial distance.
+
+        * ``'orthogonal'`` (default) -- the cube and axial blocks are
+          orthogonal to the full second-order model:
+          ``alpha^2 = n_c (2k + n_a0) / (2 (n_c + n_c0))`` with ``n_c``
+          the number of cube runs, ``n_c0`` the number of center runs in
+          *Y* and ``n_a0`` = *n_center*.
+        * ``'rotatable'`` -- ``alpha = n_c^(1/4)``.
+        * ``'face-centered'`` -- ``alpha = 1``.
+        * *float* -- use the given value directly.
+    n_center : int or None
+        Number of center runs in the axial block.  ``None`` (default)
+        uses as many as each existing block has.
+
+    Returns
+    -------
+    Y : pd.DataFrame
+        The existing runs followed by the axial block, with a new index
+        and a ``'Block'`` column.
+    """
+    assert isinstance(Y, pd.DataFrame), "Y must be a DataFrame"
+    _validate_factors(factors)
+    k = len(factors)
+    assert k >= 2, f"A central composite design requires at least 2 factors (got {k})"
+    assert alpha != "inscribed", "alpha='inscribed' would rescale the existing runs; it cannot be added afterwards"
+
+    # Coded design: each factor's two levels at -1 and +1
+    mid, half, coded = [], [], []
+    for f in factors:
+        assert f.is_continuous and not f.is_mixture, f"Factor {f.name} must be continuous for a CCD"
+        lv = _levels(f, 2)
+        assert len(lv) == 2, f"Factor {f.name} must have two levels (has {len(lv)})"
+        mid.append((lv.min() + lv.max()) / 2)
+        half.append((lv.max() - lv.min()) / 2)
+        coded.append((f.normalize(Y[str(f.name)].to_numpy(dtype=np.float64)) - mid[-1]) / half[-1])
+    C = np.column_stack(coded)
+
+    cube = np.all(np.isclose(np.abs(C), 1), axis=1)
+    center = np.all(np.isclose(C, 0, atol=1e-9), axis=1)
+    bad = np.flatnonzero(~(cube | center))
+    assert len(bad) == 0, (
+        f"Run {Y.index[bad[0]]} is neither a cube run (every factor at one of its two levels) nor a center run"
+    )
+    n_cube, n_cube_center = int(cube.sum()), int(center.sum())
+    n_blocks = Y[BLOCK_COLUMN].nunique() if BLOCK_COLUMN in Y.columns else 1
+    if n_center is None:
+        n_center = n_cube_center // n_blocks
+    assert n_center >= 0, f"n_center must be non-negative (got {n_center})"
+
+    alpha_val = _axial_distance(alpha, n_cube, k, n_cube_center, n_center, blocked=True)
+    axial = np.zeros((2 * k + n_center, k), dtype=np.float64)
+    for i in range(k):
+        axial[2 * i, i] = alpha_val
+        axial[2 * i + 1, i] = -alpha_val
+
+    X = _second_order_matrix(np.vstack([C, axial]))
+    assert np.linalg.matrix_rank(X) == X.shape[1], (
+        "The combined design does not support the full second-order model; the cube needs resolution V "
+        "(or a larger fraction) so that the two-factor interactions are not aliased"
+    )
+
+    new = _to_dataframe(np.array(mid) + np.array(half) * axial, factors)
+    if BLOCK_COLUMN in Y.columns:
+        new[BLOCK_COLUMN] = int(Y[BLOCK_COLUMN].max()) + 1
+        result = pd.concat([Y, new], ignore_index=True)
+    else:
+        result = pd.concat([Y, new], ignore_index=True)
+        result[BLOCK_COLUMN] = np.repeat(np.array([1, 2], dtype=np.int64), [len(Y), len(new)])
+    result.attrs = dict(Y.attrs)
+    return result
