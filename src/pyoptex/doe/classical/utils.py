@@ -12,6 +12,8 @@ from ...utils.factor import FactorMixin
 
 # Name of the column with the block number (1, 2, ...) in blocked designs
 BLOCK_COLUMN = "Block"
+# Name of the column with the whole-plot number (1, 2, ...) in split-plot designs
+WHOLE_PLOT_COLUMN = "WholePlot"
 
 
 def _validate_factors(factors):
