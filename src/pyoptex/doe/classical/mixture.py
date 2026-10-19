@@ -1,8 +1,10 @@
 """
 Module for classical mixture design generation (simplex lattice and
 simplex centroid designs, Scheffé 1958, 1963), with lower bounds through
-L-pseudocomponents and optional augmentation with check blends (Cornell,
-J. A. (2002), "Experiments with Mixtures", 3rd ed., Wiley).
+L-pseudocomponents and optional augmentation with check blends, and
+extreme vertices designs for components with lower and upper bounds
+(McLean and Anderson, 1966) (Cornell, J. A. (2002), "Experiments with
+Mixtures", 3rd ed., Wiley).
 
 Following the pyoptex convention for mixtures, a mixture of q components
 is specified with q - 1 mixture factors; the last component is implied as
@@ -156,3 +158,104 @@ def simplex_centroid(factors, last_min=0.0, augment=False):
             rows.append(row)
     z = np.array(rows, dtype=np.float64)
     return _to_mixture_dataframe(z, factors, last_min, augment, "simplex centroid design")
+
+
+def _unique_rows(rows, tol=1e-9):
+    """Rows without duplicates (within *tol*), in order of first occurrence."""
+    unique = []
+    for row in rows:
+        if not any(np.allclose(row, u, atol=tol) for u in unique):
+            unique.append(row)
+    return unique
+
+
+def extreme_vertices(factors, last_min=0.0, last_max=1.0, face_centroids=(), overall_centroid=True):
+    """
+    Generate an extreme vertices design for a mixture with lower and upper
+    bounds on the components.
+
+    With bounds ``L_i <= x_i <= U_i`` the region is a polytope instead of
+    a simplex.  The design of McLean and Anderson (1966) consists of its
+    vertices, optionally with the centroids of its faces and the overall
+    centroid (Cornell, 2002):
+
+    1. The bounds are tightened to the implied bounds
+       ``L_i' = max(L_i, 1 - sum_{j != i} U_j)`` and
+       ``U_i' = min(U_i, 1 - sum_{j != i} L_j)``.
+    2. For every component i and every assignment of the other q - 1
+       components to their lower or upper bound, ``x_i = 1 - sum of the
+       others`` gives a vertex when ``L_i' <= x_i <= U_i'``.
+    3. A face of dimension d has q - 1 - d active bounds, each on a
+       different component; its centroid is the mean of its vertices.
+
+    Parameters
+    ----------
+    factors : list(Factor)
+        The first q - 1 mixture components (``type='mixture'``), with
+        bounds from the minimum and maximum of their levels.  The last
+        component is implied as one minus the sum of the others and is
+        not part of the design.
+    last_min : float
+        Lower bound of the implied last component (default 0).
+    last_max : float
+        Upper bound of the implied last component (default 1).
+    face_centroids : tuple(int)
+        Dimensions of the faces whose centroids are added (1 for the
+        edges, 2 for the two-dimensional faces, ...), up to q - 2.
+    overall_centroid : bool
+        Whether to add the overall centroid, the mean of all vertices
+        (default True).
+
+    Returns
+    -------
+    Y : pd.DataFrame
+        The design with q - 1 columns (denormalized): the vertices, then
+        the face centroids by dimension, then the overall centroid.
+    """
+    _validate_factors(factors)
+    for f in factors:
+        assert f.is_mixture, f"Factor {f.name} must be a mixture factor for an extreme vertices design"
+    q = len(factors) + 1
+    lower = np.array([min(f.levels) for f in factors] + [last_min], dtype=np.float64)
+    upper = np.array([max(f.levels) for f in factors] + [last_max], dtype=np.float64)
+    assert np.all(lower <= upper), "Every lower bound must be at most the upper bound"
+    assert lower.sum() <= 1 + 1e-12 and upper.sum() >= 1 - 1e-12, (
+        f"The bounds are infeasible: the lower bounds sum to {lower.sum():g} and the upper bounds to "
+        f"{upper.sum():g}, but the components must sum to 1"
+    )
+
+    # 1. Implied (tightened) bounds
+    lo = np.maximum(lower, 1 - (upper.sum() - upper))
+    hi = np.minimum(upper, 1 - (lower.sum() - lower))
+
+    # 2. Vertices
+    vertices = []
+    for i in range(q):
+        others = [j for j in range(q) if j != i]
+        for choice in product((0, 1), repeat=q - 1):
+            x = np.empty(q)
+            x[others] = [hi[j] if c else lo[j] for j, c in zip(others, choice, strict=True)]
+            x[i] = 1 - x[others].sum()
+            if lo[i] - 1e-9 <= x[i] <= hi[i] + 1e-9:
+                vertices.append(x)
+    V = np.array(_unique_rows(vertices))
+
+    # 3. Face centroids
+    rows = list(V)
+    for d in face_centroids:
+        assert 1 <= d <= q - 2, f"Face dimensions must be between 1 and q - 2 = {q - 2} (got {d})"
+        faces = []
+        for comps in combinations(range(q), q - 1 - d):
+            for choice in product((0, 1), repeat=q - 1 - d):
+                on_face = np.ones(len(V), dtype=bool)
+                for j, c in zip(comps, choice, strict=True):
+                    on_face &= np.isclose(V[:, j], hi[j] if c else lo[j], atol=1e-9)
+                members = np.flatnonzero(on_face)
+                if len(members) > d and np.linalg.matrix_rank(V[members] - V[members[0]], tol=1e-9) == d:
+                    if frozenset(members) not in {frozenset(f) for f in faces}:
+                        faces.append(members)
+        rows += [V[members].mean(axis=0) for members in faces]
+
+    if overall_centroid:
+        rows.append(V.mean(axis=0))
+    return _to_dataframe(np.array(rows)[:, :-1], factors)

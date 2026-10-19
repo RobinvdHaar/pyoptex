@@ -1,11 +1,11 @@
-from itertools import product
+from itertools import combinations, product
 from math import comb
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from pyoptex.doe.classical import Factor, simplex_centroid, simplex_lattice
+from pyoptex.doe.classical import Factor, extreme_vertices, simplex_centroid, simplex_lattice
 
 
 def _mixture_factors(q):
@@ -130,6 +130,85 @@ class TestAugment:
         X = _full_blend(simplex_centroid(_bounded_factors(), last_min=0.1, augment=True))
         np.testing.assert_allclose(X[-3], _LOWER + 0.6 * np.array([4, 1, 1]) / 6)
         np.testing.assert_allclose(X.sum(axis=1), 1.0)
+
+
+def _as_set(X, decimals=9):
+    return {tuple(np.round(row, decimals)) for row in X}
+
+
+def _brute_force_vertices(lower, upper):
+    """Solve every system of q - 1 active bounds plus sum = 1 and keep the feasible, distinct solutions."""
+    q = len(lower)
+    planes = [(j, b) for j in range(q) for b in (lower[j], upper[j])]
+    found = []
+    for active in combinations(planes, q - 1):
+        A = np.zeros((q, q))
+        rhs = np.zeros(q)
+        for r, (j, b) in enumerate(active):
+            A[r, j], rhs[r] = 1, b
+        A[q - 1], rhs[q - 1] = 1, 1
+        if abs(np.linalg.det(A)) < 1e-12:
+            continue
+        x = np.linalg.solve(A, rhs)
+        if np.all(x >= lower - 1e-9) and np.all(x <= upper + 1e-9):
+            found.append(x)
+    return _as_set(found)
+
+
+class TestExtremeVertices:
+    def test_unconstrained_simplex(self):
+        """Bounds [0, 1]: the pure components; edge and 2-face centroids are the 50/50 and 1/3 blends."""
+        factors = _mixture_factors(4)
+        X = _full_blend(extreme_vertices(factors, face_centroids=(1, 2), overall_centroid=True))
+        centroid = _full_blend(simplex_centroid(factors))
+        assert _as_set(X) == _as_set(centroid)
+        assert len(X) == len(centroid) == 15
+        assert _as_set(X[:4]) == _as_set(np.eye(4))
+
+    def test_lower_bounds_only(self):
+        """With lower bounds only, the vertices are those of the L-pseudocomponent simplex."""
+        X = _full_blend(extreme_vertices(_bounded_factors(), last_min=0.1, overall_centroid=False))
+        expected = _full_blend(simplex_lattice(_bounded_factors(), 1, last_min=0.1))
+        assert _as_set(X) == _as_set(expected)
+
+    def test_box_constraints_match_brute_force(self):
+        """q = 4 with several binding upper bounds."""
+        factors = [
+            Factor("A", type="mixture", levels=[0.1, 0.5]),
+            Factor("B", type="mixture", levels=[0.2, 0.6]),
+            Factor("C", type="mixture", levels=[0.05, 0.3]),
+        ]
+        lower, upper = np.array([0.1, 0.2, 0.05, 0.1]), np.array([0.5, 0.6, 0.3, 0.4])
+        X = _full_blend(extreme_vertices(factors, last_min=0.1, last_max=0.4, overall_centroid=False))
+        assert _as_set(X) == _brute_force_vertices(lower, upper)
+        assert len(X) > 4  # not a simplex
+
+    def test_proportions_and_bounds(self):
+        factors = [
+            Factor("A", type="mixture", levels=[0.1, 0.5]),
+            Factor("B", type="mixture", levels=[0.2, 0.6]),
+            Factor("C", type="mixture", levels=[0.05, 0.3]),
+        ]
+        X = _full_blend(extreme_vertices(factors, last_min=0.1, last_max=0.4, face_centroids=(1, 2)))
+        np.testing.assert_allclose(X.sum(axis=1), 1.0)
+        assert np.all(X >= np.array([0.1, 0.2, 0.05, 0.1]) - 1e-9)
+        assert np.all(X <= np.array([0.5, 0.6, 0.3, 0.4]) + 1e-9)
+
+    def test_order_vertices_faces_centroid(self):
+        """Vertices first, then the face centroids, then the overall centroid (the mean of the vertices)."""
+        factors = _mixture_factors(3)
+        X = _full_blend(extreme_vertices(factors, face_centroids=(1,)))
+        assert _as_set(X[:3]) == _as_set(np.eye(3))
+        assert _as_set(X[3:6]) == {(0.5, 0.5, 0.0), (0.5, 0.0, 0.5), (0.0, 0.5, 0.5)}
+        np.testing.assert_allclose(X[-1], 1 / 3)
+
+    def test_infeasible_bounds_raise(self):
+        factors = [Factor("A", type="mixture", levels=[0.6, 1]), Factor("B", type="mixture", levels=[0.5, 1])]
+        with pytest.raises(AssertionError, match="infeasible"):
+            extreme_vertices(factors)
+        factors = [Factor("A", type="mixture", levels=[0, 0.2]), Factor("B", type="mixture", levels=[0, 0.2])]
+        with pytest.raises(AssertionError, match="infeasible"):
+            extreme_vertices(factors, last_max=0.3)
 
 
 def test_unchanged_without_bounds_and_augment():
