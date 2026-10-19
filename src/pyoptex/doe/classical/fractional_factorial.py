@@ -169,6 +169,12 @@ def fractional_factorial(factors, generators, n_levels=2, n_center=0, n_blocks=1
     otherwise *n_levels* equally spaced levels (default 2).
     Categorical factors use ``len(levels)`` levels.
 
+    For two-level factors with explicit levels, the levels are taken in
+    the order given: the first is the low (-1) level and the second the
+    high (+1) level.  Listing them high-first (e.g. ``levels=[20, 10]``)
+    therefore gives the other half of a fraction (e.g. D = -ABC instead
+    of D = ABC): a valid design with the same resolution.
+
     Parameters
     ----------
     factors : list(Factor)
