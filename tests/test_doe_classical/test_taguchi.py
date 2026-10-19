@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pyoptex.doe.classical import Factor, crossed_array, full_factorial, taguchi
+from pyoptex.doe.classical import Factor, choose_orthogonal_array, crossed_array, full_factorial, taguchi
 from pyoptex.doe.classical.taguchi import _ARRAYS
 
 # Printed tables (levels 1, 2, 3) of Phadke (1989), Appendix C, for row-by-row comparison.
@@ -212,6 +212,56 @@ def test_l18_interaction_of_first_two_columns():
     for j in range(2, 8):
         pairs, counts = np.unique(np.column_stack([merged, A[:, j]]), axis=0, return_counts=True)
         assert len(pairs) == 18 and np.all(counts == 1)
+
+
+def _factors_with_levels(levels):
+    """Two-level continuous factors and categorical factors with other numbers of levels."""
+    return [
+        Factor(f"X{i}") if lv == 2 else Factor(f"X{i}", type="categorical", levels=[f"L{j}" for j in range(lv)])
+        for i, lv in enumerate(levels)
+    ]
+
+
+class TestChooseOrthogonalArray:
+    @pytest.mark.parametrize(
+        "levels, expected",
+        [
+            ([2] * 7, "L8"),
+            ([2] * 8, "L12"),
+            ([3] * 4, "L9"),
+            ([2] + [3] * 7, "L18"),
+            ([2] * 4 + [3] * 12, "L36"),  # the L36b has only 3 two-level columns
+            ([2] * 2 + [3] * 13, "L36b"),  # the L36 has only 12 three-level columns
+            ([2] + [3] * 12, "L36b"),  # both fit; the L36b has fewer columns
+            ([4] * 5, "L16b"),
+            ([5] * 6, "L25"),
+            ([2] + [4] * 9, "L32b"),
+        ],
+    )
+    def test_smallest_array(self, levels, expected):
+        factors = _factors_with_levels(levels)
+        name, columns = choose_orthogonal_array(factors)
+        assert name == expected
+        Y = taguchi(name, factors, columns=columns)
+        assert [Y[str(f.name)].nunique() for f in factors] == levels
+
+    def test_minimum_aberration_columns(self):
+        """4 two-level factors in the L8: columns 1, 2, 4 and 7, a resolution IV design."""
+        factors = _factors_with_levels([2] * 4)
+        name, columns = choose_orthogonal_array(factors)
+        assert (name, columns) == ("L8", [1, 2, 4, 7])
+        X = taguchi(name, factors, columns=columns).to_numpy(dtype=np.float64)
+        for cols in combinations(range(4), 3):
+            assert abs(np.prod(X[:, list(cols)], axis=1).sum()) < 8  # no word of length 3
+        np.testing.assert_allclose(np.abs(np.prod(X, axis=1).sum()), 8)  # the word of length 4
+
+    def test_beyond_catalogue_uses_first_columns(self):
+        name, columns = choose_orthogonal_array(_factors_with_levels([2] * 40))
+        assert (name, columns) == ("L64", list(range(1, 41)))
+
+    def test_six_levels_raise(self):
+        with pytest.raises(AssertionError, match="use an optimal design"):
+            choose_orthogonal_array(_factors_with_levels([6]))
 
 
 class TestCrossedArray:

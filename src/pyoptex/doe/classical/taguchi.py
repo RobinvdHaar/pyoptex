@@ -16,6 +16,7 @@ the arrays concerned.
 import numpy as np
 import pandas as pd
 
+from ._min_aberration import _MA_GENERATORS
 from .utils import BLOCK_COLUMN, _levels, _to_dataframe, _validate_factors
 
 # fmt: off
@@ -323,6 +324,92 @@ def taguchi(name, factors, columns=None):
         design[:, j] = lv[col]
 
     return _to_dataframe(design, factors)
+
+
+_REGULAR_TWO_LEVEL = {"L4": 4, "L8": 8, "L16": 16, "L32": 32, "L64": 64}
+
+
+def _column_levels(name):
+    """Number of levels of every column of an array."""
+    array = _ARRAYS[name]()
+    return [int(c.max()) + 1 for c in array.T]
+
+
+def choose_orthogonal_array(factors):
+    """
+    Choose the smallest standard orthogonal array for the given factors.
+
+    Returns the array and the column of every factor, such that
+    ``taguchi(name, factors, columns=columns)`` gives the design.  The
+    number of levels of a factor is ``len(levels)`` for categorical
+    factors and continuous factors with explicit levels, and 2 for other
+    continuous factors.  The array with the fewest runs that has enough
+    columns of every required number of levels is chosen; among arrays
+    with the same number of runs, the one with the fewest columns (e.g.
+    one two-level and seven three-level factors give the L18).
+
+    Columns:
+
+    * In the regular two-level arrays (L4, L8, L16, L32, L64) the factors
+      follow the minimum aberration design
+      (:py:func:`min_aberration_generators
+      <pyoptex.doe.classical.min_aberration_generators>`): base factor i
+      (in the order of *factors*) goes to column 2^i, and a generated
+      factor to the column of the interaction of its defining base
+      factors (columns a and b interact in column a XOR b).  E.g. four
+      factors in the L8 get columns 1, 2, 4 and 7 (resolution IV), not
+      1, 2, 3 and 4.  Beyond the catalogue (more than 31 factors in the
+      L64), the first columns are used.
+    * In all other arrays the factors get the first columns with their
+      number of levels, in order.  For the three-level L9, L27 and L81, a
+      :py:func:`fractional_factorial
+      <pyoptex.doe.classical.fractional_factorial>` with mod-3
+      generators can give a higher resolution.
+
+    Taguchi's linear graphs (assigning interactions to columns), column
+    merging and dummy levels are not supported.
+
+    Parameters
+    ----------
+    factors : list(Factor)
+        The factors.
+
+    Returns
+    -------
+    name : str
+        The array, e.g. ``'L18'``.
+    columns : list(int)
+        The (1-based) column of every factor.
+    """
+    _validate_factors(factors)
+    needed = [len(_levels(f, 2)) for f in factors]
+    counts = {lv: needed.count(lv) for lv in set(needed)}
+
+    candidates = []
+    for name in _ARRAYS:
+        col_levels = _column_levels(name)
+        if all(col_levels.count(lv) >= n for lv, n in counts.items()):
+            candidates.append((len(_ARRAYS[name]()), len(col_levels), name))
+    assert candidates, (
+        f"No standard orthogonal array has enough columns for factors with {sorted(needed)} levels; "
+        f"use an optimal design instead"
+    )
+    _, _, name = min(candidates)
+
+    k = len(factors)
+    if name in _REGULAR_TWO_LEVEL:
+        n_runs = _REGULAR_TWO_LEVEL[name]
+        p = n_runs.bit_length() - 1
+        if (k, n_runs) in _MA_GENERATORS or k <= p:
+            gens = _MA_GENERATORS[(k, n_runs)][1] if (k, n_runs) in _MA_GENERATORS else []
+            columns = [1 << i for i in range(min(k, p))]
+            columns += [int(np.bitwise_xor.reduce([1 << i for i in gen])) for gen in gens]
+            return name, columns
+        return name, list(range(1, k + 1))
+
+    col_levels = _column_levels(name)
+    free = {lv: [c + 1 for c, cl in enumerate(col_levels) if cl == lv] for lv in counts}
+    return name, [free[lv].pop(0) for lv in needed]
 
 
 def crossed_array(inner, outer):
