@@ -106,7 +106,11 @@ def min_aberration_split_plot_generators(wp_factors, sp_factors, n_runs, n_whole
     key = (k1, k2, n_runs, n_whole_plots)
     assert key in _SPLIT_PLOT_GENERATORS, (
         f"No catalogued fractional factorial split-plot design for {k1} whole-plot and {k2} subplot factors "
-        f"in {n_runs} runs and {n_whole_plots} whole plots; available (n_runs, n_whole_plots): {available}"
+        f"in {n_runs} runs and {n_whole_plots} whole plots; available (n_runs, n_whole_plots): {available}. "
+        f"Alternatives: (a) build the split-plot fraction with fractional_factorial and your own generators "
+        f"(whole-plot generators may contain only whole-plot factors), add a whole-plot column and run it with "
+        f"randomize(..., shuffle_blocks=True); only the minimum aberration guarantee is missing; "
+        f"(b) create an optimal split-plot design with pyoptex.doe.fixed_structure"
     )
 
     _, gens = _SPLIT_PLOT_GENERATORS[key]

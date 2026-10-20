@@ -186,6 +186,16 @@ class TestMinAberrationSplitPlotGenerators:
         with pytest.raises(AssertionError, match=r"available \(n_runs, n_whole_plots\): \[\(16, 8\), .*\(128, 16\)\]"):
             min_aberration_split_plot_generators(wp, sp, 16, 2)
 
+    def test_not_catalogued_suggests_alternatives(self):
+        """Own generators with fractional_factorial, or an optimal split-plot design."""
+        wp, sp = _split_factors(4, 3)
+        with pytest.raises(AssertionError) as info:
+            min_aberration_split_plot_generators(wp, sp, 16, 2)
+        message = str(info.value)
+        assert "fractional_factorial and your own generators" in message
+        assert "randomize(..., shuffle_blocks=True)" in message
+        assert "optimal split-plot design with pyoptex.doe.fixed_structure" in message
+
     def test_invalid_inputs_raise(self):
         wp, sp = _split_factors(2, 2)
         with pytest.raises(AssertionError, match="n_runs must be a power of 2"):
