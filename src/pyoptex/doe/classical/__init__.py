@@ -13,7 +13,9 @@ For two-level factors with explicit levels, the levels are taken in the
 order given: the first is the low (-1) level and the second the high (+1)
 level. Listing them high-first (e.g. ``levels=[20, 10]``) therefore gives
 the other half of a fraction (e.g. D = -ABC instead of D = ABC): a valid
-design with the same resolution.
+design with the same resolution. This applies to all two-level designs
+(full and fractional factorials, Plackett-Burman and supersaturated
+designs, split-plot designs, ...), and so also to their foldovers.
 """
 
 # ruff: noqa: F401

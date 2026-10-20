@@ -251,9 +251,12 @@ def extreme_vertices(factors, last_min=0.0, last_max=1.0, face_centroids=(), ove
                 for j, c in zip(comps, choice, strict=True):
                     on_face &= np.isclose(V[:, j], hi[j] if c else lo[j], atol=1e-9)
                 members = np.flatnonzero(on_face)
-                if len(members) > d and np.linalg.matrix_rank(V[members] - V[members[0]], tol=1e-9) == d:
-                    if frozenset(members) not in {frozenset(f) for f in faces}:
-                        faces.append(members)
+                if (
+                    len(members) > d
+                    and np.linalg.matrix_rank(V[members] - V[members[0]], tol=1e-9) == d
+                    and frozenset(members) not in {frozenset(f) for f in faces}
+                ):
+                    faces.append(members)
         rows += [V[members].mean(axis=0) for members in faces]
 
     if overall_centroid:
