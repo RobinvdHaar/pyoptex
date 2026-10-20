@@ -19,6 +19,12 @@ the lexicographically smallest word length pattern (A3, A4, ...) of the full des
 (B&S Definition 1); ties go to the first choice in lexicographic order of the
 columns (WP columns, then SP columns, each in increasing order).
 
+The full run takes about 27 minutes, almost all of it for 32 runs with 13 to 15
+factors (about 1.5, 3.5 and 22 minutes; everything up to 12 factors takes 20 seconds).
+The time grows roughly fivefold per extra factor, so going beyond 15 factors in 32
+runs needs a smarter search, e.g. with isomorphism pruning as in B&S section 4,
+rather than a longer brute-force run.
+
 Usage: python scripts/generate_split_plot_catalogue.py
 """
 
@@ -29,8 +35,9 @@ from pathlib import Path
 import numpy as np
 
 # Run sizes and the largest number of factors per run size
-RANGE = {4: 3, 8: 7, 16: 15, 32: 12}
-CHUNK = 50000
+RANGE = {4: 3, 8: 7, 16: 15, 32: 15}
+# Designs per batch, so that a batch holds about 2^23 words: CHUNK >> p for p generators
+CHUNK = 2**23
 OUTPUT = Path(__file__).resolve().parents[1] / "src" / "pyoptex" / "doe" / "classical" / "_split_plot_aberration.py"
 
 HEADER = '''"""
@@ -105,10 +112,11 @@ def search(k1, k2, r1, r2):
     wp_avail = [c for c in range(1, 2**r1) if c not in units]
     sp_avail = [c for c in range(2**r1, 2**r) if c not in units]
     choices = (wp + sp for wp, sp in product(combinations(wp_avail, p1), combinations(sp_avail, p2)))
+    batch = CHUNK >> (p1 + p2)
 
     best = None
     while True:
-        chunk = np.array([c for _, c in zip(range(CHUNK), choices, strict=False)], dtype=np.int64)
+        chunk = np.array([c for _, c in zip(range(batch), choices, strict=False)], dtype=np.int64)
         if len(chunk) == 0:
             break
         wlp = _wlp(chunk, r, k)
