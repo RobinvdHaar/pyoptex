@@ -5,7 +5,7 @@ Module for all init functions of the cost optimal designs
 import numpy as np
 from tqdm import tqdm
 
-from ..utils.init import full_factorial, design_region_bounds, init_single_unconstrained
+from ..utils.init import design_region_bounds, full_factorial, init_single_unconstrained, resample_mixture_simplex
 
 
 def greedy_cost_minimization(Y, params):
@@ -92,18 +92,21 @@ def init(params, n=1, complete=False):
     if complete:
         # Must still use the correct categorical encoding
         coords = [None if f.is_continuous else params.coords[i] for i, f in enumerate(params.factors)]
-        low, high = design_region_bounds(params.factors)
+        low, high, simplex = design_region_bounds(params.factors)
     else:
         nprior = len(params.prior)
         run[:nprior] = params.prior
         invalid[:nprior] = False
         coords = params.coords
-        low, high = None, None
+        low, high, simplex = None, None, False
 
     # Loop until all are valid
     while np.any(invalid):
         run[invalid] = init_single_unconstrained(params.colstart, coords, run[invalid], params.effect_types, low, high)
-        invalid[invalid] = params.fn.constraints(run[invalid])
+        too_high = False
+        if simplex:
+            run[invalid], too_high = resample_mixture_simplex(run[invalid], params.colstart, params.factors, low, high)
+        invalid[invalid] = params.fn.constraints(run[invalid]) | too_high
 
     return run
 
