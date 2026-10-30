@@ -6,7 +6,7 @@ import numpy as np
 
 from ..._profile import profile
 from ...utils.design import encode_design
-from ..utils.init import init_single_unconstrained
+from ..utils.init import design_region_bounds, init_single_unconstrained
 from ._init_cy import __correct_constraints, __init_unconstrained
 
 
@@ -103,7 +103,12 @@ def init_random(params, n=1, complete=False):
         The number of runs
     complete : bool
         Whether to use the coordinates for initialization
-        or initialize fully randomly.
+        or initialize fully randomly. Fully randomly, continuous
+        factors are drawn uniformly over their range, and mixture
+        components between their lowest and highest level, after which
+        the constraints (including the mixture sum of at most 1) reject
+        infeasible runs. With very many mixture components that each
+        span almost all of [0, 1], this rejection becomes slow.
 
     Returns
     -------
@@ -118,12 +123,14 @@ def init_random(params, n=1, complete=False):
     if complete:
         # Must still use the correct categorical encoding
         coords = [None if f.is_continuous else params.coords[i] for i, f in enumerate(params.factors)]
+        low, high = design_region_bounds(params.factors)
     else:
         coords = params.coords
+        low, high = None, None
 
     # Loop until all are valid
     while np.any(invalid):
-        run[invalid] = init_single_unconstrained(params.colstart, coords, run[invalid], params.effect_types)
+        run[invalid] = init_single_unconstrained(params.colstart, coords, run[invalid], params.effect_types, low, high)
         invalid[invalid] = params.fn.constraints(run[invalid])
 
     return run

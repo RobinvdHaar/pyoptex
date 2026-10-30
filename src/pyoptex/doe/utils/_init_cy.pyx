@@ -10,6 +10,8 @@ def init_single_unconstrained_cython_impl(
         list coords,
         cnp.ndarray[cnp.double_t, ndim=2, mode='c'] run,
         const long long[::1] effect_types not None,
+        const double[::1] low not None,
+        const double[::1] high not None,
     ):
     """
     Cython implementation of <pyoptex.doe.utils.init.init_single_unconstrained>.
@@ -35,7 +37,7 @@ def init_single_unconstrained_cython_impl(
             # Default coordinate generation
             if factor_type == 1: 
                 # Continuous factor
-                random_values = np.random.rand(n_runs) * 2.0 - 1.0
+                random_values = np.random.rand(n_runs) * (high[i] - low[i]) + low[i]
                 run_view[:, start_col] = random_values
             else: 
                 # Categorical factor
