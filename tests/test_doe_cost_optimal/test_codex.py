@@ -3,6 +3,7 @@ from multiprocessing.reduction import ForkingPickler
 import numpy as np
 import pandas as pd
 import pytest
+from scipy import stats
 
 from pyoptex._seed import set_seed
 
@@ -10,9 +11,10 @@ pytestmark = pytest.mark.filterwarnings("ignore:Metric is .*:UserWarning")
 from pyoptex.doe.constraints import parse_constraints_script
 from pyoptex.doe.cost_optimal import Factor
 from pyoptex.doe.cost_optimal.codex import create_cost_optimal_codex_design, create_parameters, default_fn
-from pyoptex.doe.cost_optimal.cost import parallel_worker_cost
-from pyoptex.doe.cost_optimal.cov import cov_double_time_trend, cov_time_trend
-from pyoptex.doe.cost_optimal.metric import Iopt
+from pyoptex.doe.cost_optimal.cost import fixed_runs_cost, parallel_worker_cost
+from pyoptex.doe.cost_optimal.cov import cov_time_trend
+from pyoptex.doe.cost_optimal.evaluate import power
+from pyoptex.doe.cost_optimal.metric import Dopt, Iopt
 from pyoptex.utils.model import model2Y2X, partial_rsm_names
 from tests._helpers import assert_frame_equal, load_reference
 
@@ -92,3 +94,18 @@ def test_time_trend_columns():
     cov_double_time_trend(3, 2)  # Two inner periods per outer period, the second one partial
     with pytest.raises(ValueError, match="must be positive"):
         cov_double_time_trend(4, 0)
+@pytest.mark.parametrize("ddf", ["kenward-roger", "satterthwaite"])
+def test_power_split_plot(ddf):
+    """
+    The balanced split-plot design (4 whole plots of 4 runs, W grouped, S within) as a CODEX design: W is tested
+    against the whole plots (2 df, noncentrality 3.2), S and W * S within them (10 df, noncentrality 16).
+    """
+    factors = [Factor("W", grouped=True, ratio=1), Factor("S", grouped=False)]
+    model = partial_rsm_names({"W": "tfi", "S": "tfi"})
+    Y = pd.DataFrame({"W": np.repeat([-1, 1, -1, 1], 4), "S": np.tile([-1, 1, -1, 1], 4)})
+    fn = default_fn(1, factors, fixed_runs_cost(len(Y)), Dopt(), model2Y2X(model, factors))
+
+    pw = power(Y, create_parameters(factors, fn), model, ddf=ddf)
+    assert list(pw.columns) == ["W", "S", "W * S"]
+    np.testing.assert_allclose(pw["W"], stats.ncf.sf(stats.f.ppf(0.95, 1, 2), 1, 2, 3.2))
+    np.testing.assert_allclose(pw[["S", "W * S"]].to_numpy(), stats.ncf.sf(stats.f.ppf(0.95, 1, 10), 1, 10, 16))
