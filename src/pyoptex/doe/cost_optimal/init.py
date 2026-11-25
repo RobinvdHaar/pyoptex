@@ -10,6 +10,8 @@ from tqdm import tqdm
 
 from ...utils.design import encode_design
 from ..utils.init import MAX_REJECTED_RUNS, full_factorial, init_design_region, init_single_unconstrained
+from ..utils.init import full_factorial, init_single_unconstrained
+from .utils import _within_budget
 
 
 def greedy_cost_minimization(Y, params):
@@ -202,7 +204,9 @@ def init_feasible(params, max_tries=3, max_size=None, force_cost_feasible=True):
         costs = params.fn.cost(Y, params)
         cost_Y = np.array([np.sum(c) for c, _, _ in costs])
         max_cost = np.array([m for _, m, _ in costs])
-        feasible = (np.linalg.matrix_rank(X) >= X.shape[1]) and (np.all(cost_Y <= max_cost) or not force_cost_feasible)
+        feasible = (np.linalg.matrix_rank(X) >= X.shape[1]) and (
+            _within_budget(cost_Y, max_cost) or not force_cost_feasible
+        )
 
         # Raise an error if no feasible design can be found
         if tries >= max_tries and not feasible:
@@ -326,7 +330,7 @@ def init_feasible_(params, max_tries=3, minimal=True, max_size=None, force_cost_
                     costs = params.fn.cost(Y[keep], params)
                     cost_Y = np.array([np.sum(c) for c, _, _ in costs])
                     max_cost = np.array([m for _, m, _ in costs])
-                    if np.all(cost_Y <= max_cost):
+                    if _within_budget(cost_Y, max_cost):
                         break
             Y = Y[keep]
 
@@ -339,12 +343,14 @@ def init_feasible_(params, max_tries=3, minimal=True, max_size=None, force_cost_
         costs = params.fn.cost(Y, params)
         cost_Y = np.array([np.sum(c) for c, _, _ in costs])
         max_cost = np.array([m for _, m, _ in costs])
-        feasible = (np.linalg.matrix_rank(X) >= X.shape[1]) and (np.all(cost_Y <= max_cost) or not force_cost_feasible)
+        feasible = (np.linalg.matrix_rank(X) >= X.shape[1]) and (
+            _within_budget(cost_Y, max_cost) or not force_cost_feasible
+        )
 
         # Raise an error if no feasible design can be found
         if tries >= max_tries and not feasible:
             # Check if within budget
-            if np.all(cost_Y <= max_cost) or not force_cost_feasible:
+            if _within_budget(cost_Y, max_cost) or not force_cost_feasible:
                 # Determine which column causes rank deficiency
                 for i in range(1, X.shape[1] + 1):
                     if np.linalg.matrix_rank(X[:, :i]) < i:
@@ -453,7 +459,7 @@ def init_warm_feasible(params, df, group_col=None, n_keep=None, max_tries=5000):
         costs = params.fn.cost(Y, params)
         cost_Y = np.array([np.sum(c) for c, _, _ in costs])
         max_cost = np.array([m for _, m, _ in costs])
-        if np.all(cost_Y <= max_cost):
+        if _within_budget(cost_Y, max_cost):
             return Y
 
         # Keep the smallest relative overrun
